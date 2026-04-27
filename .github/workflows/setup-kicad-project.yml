@@ -1,0 +1,80 @@
+# .github/workflows/setup-kicad-project.yml
+name: Setup KiCad Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "KiCad project name, e.g. motor-driver"
+        required: true
+        type: string
+      remove_workflow:
+        description: "Remove this setup workflow after running"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Rename KiCad project files and replace placeholders
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT="${{ inputs.project_name }}"
+
+          # Basic safety: allow letters, numbers, dots, underscores, and hyphens.
+          if [[ ! "$PROJECT" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid project name: $PROJECT"
+            echo "Use only letters, numbers, dots, underscores, and hyphens."
+            exit 1
+          fi
+
+          # Rename top-level KiCad project files.
+          [ -f "TEMPLATE.kicad_pro" ] && mv "TEMPLATE.kicad_pro" "$PROJECT.kicad_pro"
+          [ -f "TEMPLATE.kicad_sch" ] && mv "TEMPLATE.kicad_sch" "$PROJECT.kicad_sch"
+          [ -f "TEMPLATE.kicad_pcb" ] && mv "TEMPLATE.kicad_pcb" "$PROJECT.kicad_pcb"
+
+          # Rename custom symbol library if present.
+          [ -f "libs/symbols/TEMPLATE.kicad_sym" ] && mv "libs/symbols/TEMPLATE.kicad_sym" "libs/symbols/$PROJECT.kicad_sym"
+
+          # Rename custom footprint library if present.
+          [ -d "libs/footprints/TEMPLATE.pretty" ] && mv "libs/footprints/TEMPLATE.pretty" "libs/footprints/$PROJECT.pretty"
+
+          # Replace placeholder text inside text-based project files.
+          grep -RIl "TEMPLATE" . \
+            --exclude-dir=.git \
+            --exclude-dir=.github \
+            | xargs -r sed -i "s/TEMPLATE/$PROJECT/g"
+
+      - name: Remove setup workflow if requested
+        if: ${{ inputs.remove_workflow }}
+        shell: bash
+        run: |
+          rm -f .github/workflows/setup-kicad-project.yml
+
+      - name: Commit setup result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No setup changes to commit."
+          else
+            git commit -m "Set up KiCad project"
+            git push
+          fi
